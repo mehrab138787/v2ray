@@ -1,11 +1,11 @@
 import asyncio
 import logging
-import sqlite3
 from datetime import datetime, timedelta
 import random
 import hashlib
 import os
 import threading
+import asyncpg
 
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
@@ -30,11 +30,27 @@ for i, config in enumerate(CONFIGS):
     key = f"cfg_{i}"
     config_store[key] = config
 
-# ==================== دیتابیس ====================
+# ==================== دیتابیس PostgreSQL ====================
 class Database:
     def __init__(self):
-        self.conn = sqlite3.connect("v2ray_bot.db", check_same_thread=False)
-        self.cursor = self.conn.cursor()
+        self.pool = None
+
+    async def init(self):
+        """اتصال به دیتابیس PostgreSQL"""
+        database_url = os.environ.get("DATABASE_URL")
+        if not database_url:
+            # برای تست محلی با SQLite
+            import sqlite3
+            self.conn = sqlite3.connect("v2ray_bot.db", check_same_thread=False)
+            self.cursor = self.conn.cursor()
+            self._create_sqlite_tables()
+            return
+        
+        self.pool = await asyncpg.create_pool(database_url)
+        await self._create_tables()
+
+    def _create_sqlite_tables(self):
+        """ایجاد جدول‌ها در SQLite"""
         self.cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 user_id INTEGER PRIMARY KEY,
@@ -57,60 +73,142 @@ class Database:
         ''')
         self.conn.commit()
 
-    def add_user(self, user_id, username, first_name, referrer_id=None):
-        now = datetime.now().isoformat()
-        expire = (datetime.now() + timedelta(hours=6)).isoformat()
-        self.cursor.execute('SELECT user_id FROM users WHERE user_id = ?', (user_id,))
-        if self.cursor.fetchone():
-            return False
-        self.cursor.execute('''
-            INSERT INTO users (user_id, username, first_name, referrer_id, created_at, config_expire)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (user_id, username, first_name, referrer_id, now, expire))
-        if referrer_id:
+    async def _create_tables(self):
+        """ایجاد جدول‌ها در PostgreSQL"""
+        async with self.pool.acquire() as conn:
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    user_id BIGINT PRIMARY KEY,
+                    username TEXT,
+                    first_name TEXT,
+                    referrer_id BIGINT,
+                    created_at TIMESTAMP,
+                    config_expire TIMESTAMP,
+                    total_configs INTEGER DEFAULT 0,
+                    notified_referral INTEGER DEFAULT 0
+                )
+            ''')
+            await conn.execute('''
+                CREATE TABLE IF NOT EXISTS referrals (
+                    id SERIAL PRIMARY KEY,
+                    referrer_id BIGINT,
+                    new_user_id BIGINT,
+                    created_at TIMESTAMP
+                )
+            ''')
+
+    async def add_user(self, user_id, username, first_name, referrer_id=None):
+        now = datetime.now()
+        expire = now + timedelta(hours=6)
+        
+        if self.pool:
+            async with self.pool.acquire() as conn:
+                # بررسی وجود کاربر
+                existing = await conn.fetchrow('SELECT user_id FROM users WHERE user_id = $1', user_id)
+                if existing:
+                    return False
+                
+                await conn.execute('''
+                    INSERT INTO users (user_id, username, first_name, referrer_id, created_at, config_expire)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                ''', user_id, username, first_name, referrer_id, now, expire)
+                
+                if referrer_id:
+                    await conn.execute('''
+                        INSERT INTO referrals (referrer_id, new_user_id, created_at)
+                        VALUES ($1, $2, $3)
+                    ''', referrer_id, user_id, now)
+                return True
+        else:
+            # SQLite
+            self.cursor.execute('SELECT user_id FROM users WHERE user_id = ?', (user_id,))
+            if self.cursor.fetchone():
+                return False
             self.cursor.execute('''
-                INSERT INTO referrals (referrer_id, new_user_id, created_at)
-                VALUES (?, ?, ?)
-            ''', (referrer_id, user_id, now))
-        self.conn.commit()
-        return True
+                INSERT INTO users (user_id, username, first_name, referrer_id, created_at, config_expire)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (user_id, username, first_name, referrer_id, now.isoformat(), expire.isoformat()))
+            if referrer_id:
+                self.cursor.execute('''
+                    INSERT INTO referrals (referrer_id, new_user_id, created_at)
+                    VALUES (?, ?, ?)
+                ''', (referrer_id, user_id, now.isoformat()))
+            self.conn.commit()
+            return True
 
-    def get_referral_count(self, user_id):
-        self.cursor.execute('SELECT COUNT(*) FROM referrals WHERE referrer_id = ?', (user_id,))
-        return self.cursor.fetchone()[0]
+    async def get_referral_count(self, user_id):
+        if self.pool:
+            async with self.pool.acquire() as conn:
+                result = await conn.fetchval('SELECT COUNT(*) FROM referrals WHERE referrer_id = $1', user_id)
+                return result or 0
+        else:
+            self.cursor.execute('SELECT COUNT(*) FROM referrals WHERE referrer_id = ?', (user_id,))
+            return self.cursor.fetchone()[0]
 
-    def get_referral_users(self, user_id):
-        self.cursor.execute('''
-            SELECT u.user_id, u.username, u.first_name, r.created_at 
-            FROM referrals r
-            JOIN users u ON r.new_user_id = u.user_id
-            WHERE r.referrer_id = ?
-            ORDER BY r.created_at DESC
-        ''', (user_id,))
-        return self.cursor.fetchall()
+    async def get_referral_users(self, user_id):
+        if self.pool:
+            async with self.pool.acquire() as conn:
+                return await conn.fetch('''
+                    SELECT u.user_id, u.username, u.first_name, r.created_at 
+                    FROM referrals r
+                    JOIN users u ON r.new_user_id = u.user_id
+                    WHERE r.referrer_id = $1
+                    ORDER BY r.created_at DESC
+                ''', user_id)
+        else:
+            self.cursor.execute('''
+                SELECT u.user_id, u.username, u.first_name, r.created_at 
+                FROM referrals r
+                JOIN users u ON r.new_user_id = u.user_id
+                WHERE r.referrer_id = ?
+                ORDER BY r.created_at DESC
+            ''', (user_id,))
+            return self.cursor.fetchall()
 
-    def add_config(self, user_id):
-        expire = (datetime.now() + timedelta(hours=6)).isoformat()
-        self.cursor.execute('''
-            UPDATE users SET total_configs = total_configs + 1, config_expire = ?
-            WHERE user_id = ?
-        ''', (expire, user_id))
-        self.conn.commit()
+    async def add_config(self, user_id):
+        expire = datetime.now() + timedelta(hours=6)
+        
+        if self.pool:
+            async with self.pool.acquire() as conn:
+                await conn.execute('''
+                    UPDATE users SET total_configs = total_configs + 1, config_expire = $1
+                    WHERE user_id = $2
+                ''', expire, user_id)
+        else:
+            self.cursor.execute('''
+                UPDATE users SET total_configs = total_configs + 1, config_expire = ?
+                WHERE user_id = ?
+            ''', (expire.isoformat(), user_id))
+            self.conn.commit()
 
-    def get_user(self, user_id):
-        self.cursor.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
-        return self.cursor.fetchone()
+    async def get_user(self, user_id):
+        if self.pool:
+            async with self.pool.acquire() as conn:
+                return await conn.fetchrow('SELECT * FROM users WHERE user_id = $1', user_id)
+        else:
+            self.cursor.execute('SELECT * FROM users WHERE user_id = ?', (user_id,))
+            return self.cursor.fetchone()
 
-    def update_notified(self, user_id):
-        self.cursor.execute('UPDATE users SET notified_referral = 1 WHERE user_id = ?', (user_id,))
-        self.conn.commit()
+    async def update_notified(self, user_id):
+        if self.pool:
+            async with self.pool.acquire() as conn:
+                await conn.execute('UPDATE users SET notified_referral = 1 WHERE user_id = $1', user_id)
+        else:
+            self.cursor.execute('UPDATE users SET notified_referral = 1 WHERE user_id = ?', (user_id,))
+            self.conn.commit()
 
-    def get_stats(self):
-        self.cursor.execute('SELECT COUNT(*) FROM users')
-        total_users = self.cursor.fetchone()[0]
-        self.cursor.execute('SELECT COUNT(*) FROM referrals')
-        total_refs = self.cursor.fetchone()[0]
-        return total_users, total_refs
+    async def get_stats(self):
+        if self.pool:
+            async with self.pool.acquire() as conn:
+                total_users = await conn.fetchval('SELECT COUNT(*) FROM users')
+                total_refs = await conn.fetchval('SELECT COUNT(*) FROM referrals')
+                return total_users or 0, total_refs or 0
+        else:
+            self.cursor.execute('SELECT COUNT(*) FROM users')
+            total_users = self.cursor.fetchone()[0]
+            self.cursor.execute('SELECT COUNT(*) FROM referrals')
+            total_refs = self.cursor.fetchone()[0]
+            return total_users, total_refs
 
 # ==================== ربات ====================
 logging.basicConfig(level=logging.INFO)
@@ -144,7 +242,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             pass
     
-    is_new = db.add_user(user_id, username, first_name, referrer_id)
+    is_new = await db.add_user(user_id, username, first_name, referrer_id)
     
     if is_referral and is_new and referrer_id:
         await notify_referrer(context, referrer_id, first_name)
@@ -180,16 +278,16 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def notify_referrer(context, referrer_id, new_user_name):
     try:
-        user_data = db.get_user(referrer_id)
+        user_data = await db.get_user(referrer_id)
         if user_data and user_data[7] == 1:
             return
         
-        count = db.get_referral_count(referrer_id)
+        count = await db.get_referral_count(referrer_id)
         remain = 5 - (count % 5)
         if remain == 0:
             remain = 5
         
-        db.update_notified(referrer_id)
+        await db.update_notified(referrer_id)
         
         await context.bot.send_message(
             chat_id=referrer_id,
@@ -240,13 +338,15 @@ async def check_membership_callback(update: Update, context: ContextTypes.DEFAUL
 
 async def send_config_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
     # بررسی انقضای کانفیگ قبلی
-    user_data = db.get_user(user_id)
+    user_data = await db.get_user(user_id)
     if user_data:
         expire_str = user_data[5]
         if expire_str:
-            expire_time = datetime.fromisoformat(expire_str)
+            if isinstance(expire_str, datetime):
+                expire_time = expire_str
+            else:
+                expire_time = datetime.fromisoformat(expire_str)
             if datetime.now() < expire_time:
-                # پیدا کردن کلید کوتاه برای کانفیگ فعلی
                 config_key = None
                 for key, value in config_store.items():
                     if value == CONFIGS[0]:
@@ -271,9 +371,8 @@ async def send_config_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE
                 )
                 return
     
-    # انتخاب کانفیگ شماره 3 (VLESS) برای کاربران عادی
     config = CONFIGS[0]
-    db.add_config(user_id)
+    await db.add_config(user_id)
     
     config_key = None
     for key, value in config_store.items():
@@ -315,7 +414,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = query.from_user.id
     
     if query.data == "referral":
-        count = db.get_referral_count(user_id)
+        count = await db.get_referral_count(user_id)
         bot_info = await context.bot.get_me()
         link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
         remain = 5 - (count % 5)
@@ -342,7 +441,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     
     elif query.data == "referral_list":
-        referrals = db.get_referral_users(user_id)
+        referrals = await db.get_referral_users(user_id)
         count = len(referrals)
         remain = 5 - (count % 5)
         if remain == 0:
@@ -352,8 +451,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             list_text = "📭 **هنوز هیچ دعوتی نداشته‌اید!**"
         else:
             list_text = ""
-            for i, (uid, uname, fname, created) in enumerate(referrals[:10], 1):
-                name = fname or uname or f"کاربر {uid}"
+            for i, ref in enumerate(referrals[:10], 1):
+                name = ref[2] or ref[1] or f"کاربر {ref[0]}"
                 list_text += f"{i}. 👤 {name}\n"
             if len(referrals) > 10:
                 list_text += f"\n... و {len(referrals) - 10} نفر دیگر"
@@ -421,11 +520,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             
-            # چک کردن تعداد دعوت‌ها برای پاداش
-            count = db.get_referral_count(user_id)
+            count = await db.get_referral_count(user_id)
             if count >= 5 and count % 5 == 0:
-                config = CONFIGS[1]  # کانفیگ شماره 9 (Trojan)
-                db.add_config(user_id)
+                config = CONFIGS[1]
+                await db.add_config(user_id)
                 
                 config_key = None
                 for key, value in config_store.items():
@@ -457,9 +555,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             
-            # کانفیگ شماره 3 (VLESS) برای کاربران عادی
             config = CONFIGS[0]
-            db.add_config(user_id)
+            await db.add_config(user_id)
             
             config_key = None
             for key, value in config_store.items():
@@ -516,7 +613,7 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔️ دسترسی محدود!")
         return
-    total_users, total_refs = db.get_stats()
+    total_users, total_refs = await db.get_stats()
     await update.message.reply_text(
         f"📊 **آمار ربات:**\n\n"
         f"👥 کاربران کل: {total_users}\n"
@@ -534,16 +631,30 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get('broadcast'):
         return
     msg = update.message.text
-    db.cursor.execute('SELECT user_id FROM users')
-    users = db.cursor.fetchall()
-    success = 0
-    for user in users:
-        try:
-            await context.bot.send_message(user[0], f"📢 {msg}")
-            success += 1
-            await asyncio.sleep(0.05)
-        except:
-            pass
+    
+    if db.pool:
+        async with db.pool.acquire() as conn:
+            users = await conn.fetch('SELECT user_id FROM users')
+            success = 0
+            for user in users:
+                try:
+                    await context.bot.send_message(user[0], f"📢 {msg}")
+                    success += 1
+                    await asyncio.sleep(0.05)
+                except:
+                    pass
+    else:
+        db.cursor.execute('SELECT user_id FROM users')
+        users = db.cursor.fetchall()
+        success = 0
+        for user in users:
+            try:
+                await context.bot.send_message(user[0], f"📢 {msg}")
+                success += 1
+                await asyncio.sleep(0.05)
+            except:
+                pass
+    
     await update.message.reply_text(f"✅ پیام به {success} کاربر ارسال شد.")
     context.user_data['broadcast'] = False
 
@@ -551,7 +662,10 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['broadcast'] = False
     await update.message.reply_text("✅ عملیات لغو شد.")
 
-def main():
+async def main():
+    # راه‌اندازی دیتابیس
+    await db.init()
+    
     # اجرای وب‌سرور در یک ترد جداگانه
     threading.Thread(target=run_flask, daemon=True).start()
     
@@ -571,7 +685,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_broadcast))
     
     print("🤖 ربات روشن شد!")
-    app.run_polling()
+    await app.run_polling()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
