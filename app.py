@@ -6,6 +6,7 @@ import hashlib
 import os
 import threading
 import asyncpg
+from PIL import Image
 
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
@@ -266,7 +267,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
         )
 
-# ==================== ادامه توابع (همانند قبل) ====================
 async def notify_referrer(context, referrer_id, new_user_name):
     try:
         user_data = await db.get_user(referrer_id)
