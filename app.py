@@ -16,7 +16,7 @@ from telegram.constants import ParseMode
 TOKEN = os.environ.get("TOKEN", "8941466935:AAGBZs9eZFZDTzmcM_Y3PYojtu497XaUEgA")
 CHANNEL_ID = "@v2ray_free_irann"
 CHANNEL_LINK = "https://t.me/v2ray_free_irann"
-ADMIN_IDS = [6691915596]  # آی‌دی عددی ادمین - این رو تغییر بدید
+ADMIN_IDS = [6691915596]
 
 # ==================== دیتابیس PostgreSQL ====================
 DATABASE_URL = "postgresql://v1ray_user:r8O5adc6NykDOFSDhysX12DlRHfwCTXP@dpg-d8peu9gg4nts73fu8sq0-a.oregon-postgres.render.com/v1ray"
@@ -78,23 +78,18 @@ class Database:
 
     async def add_user(self, user_id, username, first_name, referrer_id=None):
         if not self.is_initialized or self.pool is None:
-            print("⚠️ Database not initialized!")
             return False
-        
         try:
             now = datetime.now()
             expire = now + timedelta(hours=6)
-            
             async with self.pool.acquire() as conn:
                 existing = await conn.fetchrow('SELECT user_id FROM users WHERE user_id = $1', user_id)
                 if existing:
                     return False
-                
                 await conn.execute('''
                     INSERT INTO users (user_id, username, first_name, referrer_id, created_at, config_expire)
                     VALUES ($1, $2, $3, $4, $5, $6)
                 ''', user_id, username, first_name, referrer_id, now, expire)
-                
                 if referrer_id:
                     await conn.execute('''
                         INSERT INTO referrals (referrer_id, new_user_id, created_at)
@@ -271,14 +266,11 @@ async def notify_referrer(context, referrer_id, new_user_name):
         user_data = await db.get_user(referrer_id)
         if user_data and user_data[7] == 1:
             return
-        
         count = await db.get_referral_count(referrer_id)
         remain = 5 - (count % 5)
         if remain == 0:
             remain = 5
-        
         await db.update_notified(referrer_id)
-        
         await context.bot.send_message(
             chat_id=referrer_id,
             text=f"🎉 **خبر خوب!** \n\n"
@@ -296,7 +288,6 @@ async def check_membership_callback(update: Update, context: ContextTypes.DEFAUL
     query = update.callback_query
     await query.answer()
     user_id = query.from_user.id
-    
     try:
         member = await context.bot.get_chat_member(CHANNEL_ID, user_id)
         if member.status in ['member', 'administrator', 'creator']:
@@ -336,14 +327,12 @@ async def send_config_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE
                 if value == CONFIGS[0]:
                     config_key = key
                     break
-            
             keyboard = [
                 [InlineKeyboardButton("📋 کپی کانفیگ", callback_data=f"copy_{config_key}")],
                 [InlineKeyboardButton("👥 دعوت از دوستان", callback_data="referral")],
                 [InlineKeyboardButton("🎁 کانفیگ جدید", callback_data="new_config")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
-            
             await context.bot.send_message(
                 chat_id=user_id,
                 text=f"✅ **کانفیگ شما هنوز معتبر است!**\n\n"
@@ -354,27 +343,22 @@ async def send_config_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE
                 reply_markup=reply_markup
             )
             return
-    
     config = random.choice(CONFIGS)
     await db.add_config(user_id)
-    
     config_key = None
     for key, value in config_store.items():
         if value == config:
             config_key = key
             break
-    
     if not config_key:
         config_key = f"cfg_{hashlib.md5(config.encode()).hexdigest()[:8]}"
         config_store[config_key] = config
-    
     keyboard = [
         [InlineKeyboardButton("📋 کپی کانفیگ", callback_data=f"copy_{config_key}")],
         [InlineKeyboardButton("👥 دعوت از دوستان", callback_data="referral")],
         [InlineKeyboardButton("🎁 کانفیگ جدید", callback_data="new_config")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
     try:
         await context.bot.send_message(
             chat_id=user_id,
@@ -404,7 +388,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         remain = 5 - (count % 5)
         if remain == 0:
             remain = 5
-        
         keyboard = [
             [InlineKeyboardButton("📋 کپی لینک", callback_data=f"copy_link_{user_id}")],
             [InlineKeyboardButton("👥 مشاهده لیست دعوت‌ها", callback_data="referral_list")],
@@ -423,14 +406,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
-    
     elif query.data == "referral_list":
         referrals = await db.get_referral_users(user_id)
         count = len(referrals)
         remain = 5 - (count % 5)
         if remain == 0:
             remain = 5
-        
         if not referrals:
             list_text = "📭 **هنوز هیچ دعوتی نداشته‌اید!**"
         else:
@@ -440,7 +421,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 list_text += f"{i}. 👤 {name}\n"
             if len(referrals) > 10:
                 list_text += f"\n... و {len(referrals) - 10} نفر دیگر"
-        
         keyboard = [
             [InlineKeyboardButton("🔙 بازگشت به منوی دعوت", callback_data="referral")]
         ]
@@ -454,7 +434,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
-    
     elif query.data.startswith("copy_link_"):
         user_id = int(query.data.replace("copy_link_", ""))
         bot_info = await context.bot.get_me()
@@ -471,7 +450,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
-    
     elif query.data == "main_menu":
         keyboard = [
             [InlineKeyboardButton("🎁 دریافت کانفیگ جدید", callback_data="new_config")],
@@ -485,7 +463,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode=ParseMode.MARKDOWN,
             reply_markup=reply_markup
         )
-    
     elif query.data == "new_config":
         try:
             member = await context.bot.get_chat_member(CHANNEL_ID, user_id)
@@ -503,12 +480,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=reply_markup
                 )
                 return
-            
             count = await db.get_referral_count(user_id)
             if count >= 5 and count % 5 == 0:
                 config = CONFIGS[3]
                 await db.add_config(user_id)
-                
                 config_key = None
                 for key, value in config_store.items():
                     if value == config:
@@ -517,7 +492,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if not config_key:
                     config_key = f"cfg_{hashlib.md5(config.encode()).hexdigest()[:8]}"
                     config_store[config_key] = config
-                
                 keyboard = [
                     [InlineKeyboardButton("📋 کپی کانفیگ", callback_data=f"copy_{config_key}")],
                     [InlineKeyboardButton("👥 دعوت از دوستان", callback_data="referral")],
@@ -538,11 +512,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     reply_markup=reply_markup
                 )
                 return
-            
             normal_configs = [CONFIGS[0], CONFIGS[1], CONFIGS[2]]
             config = random.choice(normal_configs)
             await db.add_config(user_id)
-            
             config_key = None
             for key, value in config_store.items():
                 if value == config:
@@ -551,7 +523,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if not config_key:
                 config_key = f"cfg_{hashlib.md5(config.encode()).hexdigest()[:8]}"
                 config_store[config_key] = config
-            
             keyboard = [
                 [InlineKeyboardButton("📋 کپی کانفیگ", callback_data=f"copy_{config_key}")],
                 [InlineKeyboardButton("👥 دعوت از دوستان", callback_data="referral")],
@@ -572,15 +543,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logging.error(f"Error in new_config: {e}")
             await query.edit_message_text("⚠️ خطا! لطفاً دوباره تلاش کنید.")
-    
     elif query.data.startswith("copy_"):
         config_key = query.data.replace("copy_", "")
         config = config_store.get(config_key, "")
-        
         if not config:
             await query.edit_message_text("⚠️ کانفیگ پیدا نشد. لطفاً دوباره تلاش کنید.")
             return
-        
         keyboard = [
             [InlineKeyboardButton("🔙 بازگشت به منوی اصلی", callback_data="main_menu")]
         ]
@@ -594,6 +562,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
 
+# ==================== دستورات ادمین ====================
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔️ دسترسی محدود!")
@@ -609,19 +578,15 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔️ دسترسی محدود!")
         return
-    
     users = await db.get_all_users()
-    
     if not users:
         await update.message.reply_text("📭 **هنوز هیچ کاربری ثبت نام نکرده!**")
         return
-    
     keyboard = [
         [InlineKeyboardButton("📨 ارسال پیام به کاربر", callback_data="send_to_user")],
         [InlineKeyboardButton("📢 ارسال همگانی", callback_data="broadcast_menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
     message = f"👥 **لیست کاربران ({len(users)} نفر):**\n\n"
     for i, user in enumerate(users[:10], 1):
         user_id = user[0]
@@ -629,17 +594,14 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         first_name = user[2]
         created_at = user[3]
         total_configs = user[4]
-        
         name = first_name or username or f"کاربر {user_id}"
         message += f"{i}. {name}\n"
         message += f"   🆔: `{user_id}`\n"
         message += f"   📅: {created_at[:10]}\n"
         message += f"   📊: {total_configs} کانفیگ\n\n"
-    
     if len(users) > 10:
         message += f"\n... و {len(users) - 10} نفر دیگر"
         keyboard.insert(0, [InlineKeyboardButton("📄 مشاهده همه", callback_data="all_users_0")])
-    
     await update.message.reply_text(
         message,
         parse_mode=ParseMode.MARKDOWN,
@@ -649,26 +611,20 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def all_users_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     if query.from_user.id not in ADMIN_IDS:
         await query.edit_message_text("⛔️ دسترسی محدود!")
         return
-    
     users = await db.get_all_users()
-    
     if not users:
         await query.edit_message_text("📭 **هنوز هیچ کاربری ثبت نام نکرده!**")
         return
-    
     data = query.data.split("_")
     page = int(data[2]) if len(data) > 2 else 0
     per_page = 10
     total_pages = (len(users) + per_page - 1) // per_page
-    
     start = page * per_page
     end = min(start + per_page, len(users))
     current_users = users[start:end]
-    
     message = f"👥 **لیست کاربران (صفحه {page + 1} از {total_pages}):**\n\n"
     for i, user in enumerate(current_users, start + 1):
         user_id = user[0]
@@ -676,15 +632,12 @@ async def all_users_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         first_name = user[2]
         created_at = user[3]
         total_configs = user[4]
-        
         name = first_name or username or f"کاربر {user_id}"
         message += f"{i}. {name}\n"
         message += f"   🆔: `{user_id}`\n"
         message += f"   📅: {created_at[:10]}\n"
         message += f"   📊: {total_configs} کانفیگ\n\n"
-    
     keyboard = []
-    
     nav_buttons = []
     if page > 0:
         nav_buttons.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"all_users_{page - 1}"))
@@ -692,9 +645,7 @@ async def all_users_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
         nav_buttons.append(InlineKeyboardButton("➡️ بعدی", callback_data=f"all_users_{page + 1}"))
     if nav_buttons:
         keyboard.append(nav_buttons)
-    
     keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_menu")])
-    
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.edit_message_text(
         message,
@@ -705,11 +656,9 @@ async def all_users_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     if query.from_user.id not in ADMIN_IDS:
         await query.edit_message_text("⛔️ دسترسی محدود!")
         return
-    
     keyboard = [
         [InlineKeyboardButton("👥 لیست کاربران", callback_data="list_users")],
         [InlineKeyboardButton("📢 ارسال همگانی", callback_data="broadcast_menu")],
@@ -717,7 +666,6 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
     await query.edit_message_text(
         "🛠️ **پنل مدیریت ربات**\n\n"
         "از دکمه‌های زیر برای مدیریت استفاده کنید:",
@@ -728,18 +676,15 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def broadcast_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     if query.from_user.id not in ADMIN_IDS:
         await query.edit_message_text("⛔️ دسترسی محدود!")
         return
-    
     keyboard = [
         [InlineKeyboardButton("📨 ارسال به همه کاربران", callback_data="broadcast_all")],
         [InlineKeyboardButton("📨 ارسال به کاربر خاص", callback_data="send_to_user")],
         [InlineKeyboardButton("🔙 بازگشت به پنل", callback_data="admin_menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
     await query.edit_message_text(
         "📢 **ارسال پیام**\n\n"
         "لطفاً روش ارسال را انتخاب کنید:",
@@ -750,35 +695,28 @@ async def broadcast_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def broadcast_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     if query.from_user.id not in ADMIN_IDS:
         await query.edit_message_text("⛔️ دسترسی محدود!")
         return
-    
     users = await db.get_all_users()
     total = len(users)
-    
     if total == 0:
         await query.edit_message_text("📭 **هنوز هیچ کاربری ثبت نام نکرده!**")
         return
-    
     await query.edit_message_text(
         f"📢 **ارسال همگانی به {total} کاربر**\n\n"
         f"لطفاً پیام خود را ارسال کنید.\n"
         f"برای لغو، دستور /cancel را بفرستید.",
         parse_mode=ParseMode.MARKDOWN
     )
-    
     context.user_data['broadcast'] = True
 
 async def send_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    
     if query.from_user.id not in ADMIN_IDS:
         await query.edit_message_text("⛔️ دسترسی محدود!")
         return
-    
     await query.edit_message_text(
         "📨 **ارسال پیام به کاربر خاص**\n\n"
         "لطفاً ابتدا `user_id` کاربر را وارد کنید.\n"
@@ -787,14 +725,12 @@ async def send_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "برای لغو، دستور /cancel را بفرستید.",
         parse_mode=ParseMode.MARKDOWN
     )
-    
     context.user_data['send_to_user'] = True
 
 async def send_to_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔️ دسترسی محدود!")
         return
-    
     try:
         args = context.args
         if len(args) < 2:
@@ -805,21 +741,17 @@ async def send_to_user_command(update: Update, context: ContextTypes.DEFAULT_TYP
                 parse_mode=ParseMode.MARKDOWN
             )
             return
-        
         target_user_id = int(args[0])
         message_text = " ".join(args[1:])
-        
         await context.bot.send_message(
             chat_id=target_user_id,
             text=f"📨 **پیام از ادمین:**\n\n{message_text}",
             parse_mode=ParseMode.MARKDOWN
         )
-        
         await update.message.reply_text(
             f"✅ **پیام با موفقیت به کاربر `{target_user_id}` ارسال شد!**",
             parse_mode=ParseMode.MARKDOWN
         )
-        
     except ValueError:
         await update.message.reply_text("❌ `user_id` باید عددی باشد!", parse_mode=ParseMode.MARKDOWN)
     except Exception as e:
@@ -828,21 +760,17 @@ async def send_to_user_command(update: Update, context: ContextTypes.DEFAULT_TYP
 async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get('broadcast'):
         return
-    
     user_id = update.effective_user.id
     if user_id not in ADMIN_IDS:
         return
-    
     msg = update.message.text
     users = await db.get_all_users()
     success = 0
     fail = 0
-    
     await update.message.reply_text(
         f"📤 **در حال ارسال پیام به {len(users)} کاربر...**",
         parse_mode=ParseMode.MARKDOWN
     )
-    
     for user in users:
         try:
             target_id = user[0]
@@ -856,14 +784,12 @@ async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             fail += 1
             logging.error(f"Error sending to {target_id}: {e}")
-    
     await update.message.reply_text(
         f"✅ **پیام با موفقیت ارسال شد!**\n\n"
         f"📨 ارسال به: {success} کاربر\n"
         f"❌ ناموفق: {fail} کاربر",
         parse_mode=ParseMode.MARKDOWN
     )
-    
     context.user_data['broadcast'] = False
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -872,12 +798,20 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ عملیات لغو شد.")
 
 # ==================== تابع اصلی ====================
-async def main():
-    await db.init()
+def main():
+    # راه‌اندازی دیتابیس (همزمان)
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(db.init())
+    loop.close()
+    
+    # اجرای وب‌سرور در یک ترد جداگانه
     threading.Thread(target=run_flask, daemon=True).start()
     
+    # ساخت اپلیکیشن
     application = Application.builder().token(TOKEN).build()
     
+    # اضافه کردن هندلرها
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stats", stats))
     application.add_handler(CommandHandler("users", list_users))
@@ -898,7 +832,9 @@ async def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_broadcast))
     
     print("🤖 ربات روشن شد!")
+    
+    # اجرا با run_polling
     application.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
