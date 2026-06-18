@@ -41,7 +41,6 @@ class Database:
         self.is_initialized = False
 
     async def init(self):
-        """اتصال به دیتابیس PostgreSQL"""
         try:
             self.pool = await asyncpg.create_pool(DATABASE_URL)
             await self._create_tables()
@@ -54,7 +53,6 @@ class Database:
             return False
 
     async def _create_tables(self):
-        """ایجاد جدول‌ها در PostgreSQL"""
         async with self.pool.acquire() as conn:
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS users (
@@ -79,7 +77,6 @@ class Database:
             print("✅ Tables created successfully!")
 
     async def add_user(self, user_id, username, first_name, referrer_id=None):
-        """ثبت کاربر جدید"""
         if not self.is_initialized or self.pool is None:
             print("⚠️ Database not initialized!")
             return False
@@ -109,7 +106,6 @@ class Database:
             return False
 
     async def get_referral_count(self, user_id):
-        """تعداد دعوت‌های موفق کاربر"""
         if not self.is_initialized or self.pool is None:
             return 0
         try:
@@ -121,7 +117,6 @@ class Database:
             return 0
 
     async def get_referral_users(self, user_id):
-        """لیست کاربران دعوت شده"""
         if not self.is_initialized or self.pool is None:
             return []
         try:
@@ -138,7 +133,6 @@ class Database:
             return []
 
     async def add_config(self, user_id):
-        """افزایش تعداد کانفیگ‌های دریافتی کاربر"""
         if not self.is_initialized or self.pool is None:
             return
         try:
@@ -152,7 +146,6 @@ class Database:
             print(f"❌ Error in add_config: {e}")
 
     async def get_user(self, user_id):
-        """دریافت اطلاعات کاربر"""
         if not self.is_initialized or self.pool is None:
             return None
         try:
@@ -163,7 +156,6 @@ class Database:
             return None
 
     async def update_notified(self, user_id):
-        """به‌روزرسانی وضعیت اطلاع‌رسانی"""
         if not self.is_initialized or self.pool is None:
             return
         try:
@@ -173,7 +165,6 @@ class Database:
             print(f"❌ Error in update_notified: {e}")
 
     async def get_all_users(self):
-        """دریافت لیست همه کاربران"""
         if not self.is_initialized or self.pool is None:
             return []
         try:
@@ -188,7 +179,6 @@ class Database:
             return []
 
     async def get_stats(self):
-        """آمار ربات"""
         if not self.is_initialized or self.pool is None:
             return 0, 0
         try:
@@ -276,6 +266,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
         )
 
+# ==================== ادامه توابع (همانند قبل) ====================
 async def notify_referrer(context, referrer_id, new_user_name):
     try:
         user_data = await db.get_user(referrer_id)
@@ -604,7 +595,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
 
-# ==================== دستورات ادمین ====================
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔️ دسترسی محدود!")
