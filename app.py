@@ -38,17 +38,23 @@ for i, config in enumerate(CONFIGS):
 class Database:
     def __init__(self):
         self.pool = None
+        self.is_initialized = False
 
     async def init(self):
+        """اتصال به دیتابیس PostgreSQL"""
         try:
             self.pool = await asyncpg.create_pool(DATABASE_URL)
             await self._create_tables()
+            self.is_initialized = True
             print("✅ Connected to PostgreSQL database!")
+            return True
         except Exception as e:
             print(f"❌ PostgreSQL connection failed: {e}")
-            raise e
+            self.is_initialized = False
+            return False
 
     async def _create_tables(self):
+        """ایجاد جدول‌ها در PostgreSQL"""
         async with self.pool.acquire() as conn:
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS users (
@@ -73,70 +79,126 @@ class Database:
             print("✅ Tables created successfully!")
 
     async def add_user(self, user_id, username, first_name, referrer_id=None):
-        now = datetime.now()
-        expire = now + timedelta(hours=6)
+        """ثبت کاربر جدید"""
+        if not self.is_initialized or self.pool is None:
+            print("⚠️ Database not initialized!")
+            return False
         
-        async with self.pool.acquire() as conn:
-            existing = await conn.fetchrow('SELECT user_id FROM users WHERE user_id = $1', user_id)
-            if existing:
-                return False
+        try:
+            now = datetime.now()
+            expire = now + timedelta(hours=6)
             
-            await conn.execute('''
-                INSERT INTO users (user_id, username, first_name, referrer_id, created_at, config_expire)
-                VALUES ($1, $2, $3, $4, $5, $6)
-            ''', user_id, username, first_name, referrer_id, now, expire)
-            
-            if referrer_id:
+            async with self.pool.acquire() as conn:
+                existing = await conn.fetchrow('SELECT user_id FROM users WHERE user_id = $1', user_id)
+                if existing:
+                    return False
+                
                 await conn.execute('''
-                    INSERT INTO referrals (referrer_id, new_user_id, created_at)
-                    VALUES ($1, $2, $3)
-                ''', referrer_id, user_id, now)
-            return True
+                    INSERT INTO users (user_id, username, first_name, referrer_id, created_at, config_expire)
+                    VALUES ($1, $2, $3, $4, $5, $6)
+                ''', user_id, username, first_name, referrer_id, now, expire)
+                
+                if referrer_id:
+                    await conn.execute('''
+                        INSERT INTO referrals (referrer_id, new_user_id, created_at)
+                        VALUES ($1, $2, $3)
+                    ''', referrer_id, user_id, now)
+                return True
+        except Exception as e:
+            print(f"❌ Error in add_user: {e}")
+            return False
 
     async def get_referral_count(self, user_id):
-        async with self.pool.acquire() as conn:
-            result = await conn.fetchval('SELECT COUNT(*) FROM referrals WHERE referrer_id = $1', user_id)
-            return result or 0
+        """تعداد دعوت‌های موفق کاربر"""
+        if not self.is_initialized or self.pool is None:
+            return 0
+        try:
+            async with self.pool.acquire() as conn:
+                result = await conn.fetchval('SELECT COUNT(*) FROM referrals WHERE referrer_id = $1', user_id)
+                return result or 0
+        except Exception as e:
+            print(f"❌ Error in get_referral_count: {e}")
+            return 0
 
     async def get_referral_users(self, user_id):
-        async with self.pool.acquire() as conn:
-            return await conn.fetch('''
-                SELECT u.user_id, u.username, u.first_name, r.created_at 
-                FROM referrals r
-                JOIN users u ON r.new_user_id = u.user_id
-                WHERE r.referrer_id = $1
-                ORDER BY r.created_at DESC
-            ''', user_id)
+        """لیست کاربران دعوت شده"""
+        if not self.is_initialized or self.pool is None:
+            return []
+        try:
+            async with self.pool.acquire() as conn:
+                return await conn.fetch('''
+                    SELECT u.user_id, u.username, u.first_name, r.created_at 
+                    FROM referrals r
+                    JOIN users u ON r.new_user_id = u.user_id
+                    WHERE r.referrer_id = $1
+                    ORDER BY r.created_at DESC
+                ''', user_id)
+        except Exception as e:
+            print(f"❌ Error in get_referral_users: {e}")
+            return []
 
     async def add_config(self, user_id):
-        expire = datetime.now() + timedelta(hours=6)
-        async with self.pool.acquire() as conn:
-            await conn.execute('''
-                UPDATE users SET total_configs = total_configs + 1, config_expire = $1
-                WHERE user_id = $2
-            ''', expire, user_id)
+        """افزایش تعداد کانفیگ‌های دریافتی کاربر"""
+        if not self.is_initialized or self.pool is None:
+            return
+        try:
+            expire = datetime.now() + timedelta(hours=6)
+            async with self.pool.acquire() as conn:
+                await conn.execute('''
+                    UPDATE users SET total_configs = total_configs + 1, config_expire = $1
+                    WHERE user_id = $2
+                ''', expire, user_id)
+        except Exception as e:
+            print(f"❌ Error in add_config: {e}")
 
     async def get_user(self, user_id):
-        async with self.pool.acquire() as conn:
-            return await conn.fetchrow('SELECT * FROM users WHERE user_id = $1', user_id)
+        """دریافت اطلاعات کاربر"""
+        if not self.is_initialized or self.pool is None:
+            return None
+        try:
+            async with self.pool.acquire() as conn:
+                return await conn.fetchrow('SELECT * FROM users WHERE user_id = $1', user_id)
+        except Exception as e:
+            print(f"❌ Error in get_user: {e}")
+            return None
 
     async def update_notified(self, user_id):
-        async with self.pool.acquire() as conn:
-            await conn.execute('UPDATE users SET notified_referral = 1 WHERE user_id = $1', user_id)
+        """به‌روزرسانی وضعیت اطلاع‌رسانی"""
+        if not self.is_initialized or self.pool is None:
+            return
+        try:
+            async with self.pool.acquire() as conn:
+                await conn.execute('UPDATE users SET notified_referral = 1 WHERE user_id = $1', user_id)
+        except Exception as e:
+            print(f"❌ Error in update_notified: {e}")
 
     async def get_all_users(self):
-        async with self.pool.acquire() as conn:
-            return await conn.fetch('''
-                SELECT user_id, username, first_name, created_at, total_configs 
-                FROM users 
-                ORDER BY created_at DESC
-            ''')
+        """دریافت لیست همه کاربران"""
+        if not self.is_initialized or self.pool is None:
+            return []
+        try:
+            async with self.pool.acquire() as conn:
+                return await conn.fetch('''
+                    SELECT user_id, username, first_name, created_at, total_configs 
+                    FROM users 
+                    ORDER BY created_at DESC
+                ''')
+        except Exception as e:
+            print(f"❌ Error in get_all_users: {e}")
+            return []
 
     async def get_stats(self):
-        async with self.pool.acquire() as conn:
-            total_users = await conn.fetchval('SELECT COUNT(*) FROM users')
-            total_refs = await conn.fetchval('SELECT COUNT(*) FROM referrals')
-            return total_users or 0, total_refs or 0
+        """آمار ربات"""
+        if not self.is_initialized or self.pool is None:
+            return 0, 0
+        try:
+            async with self.pool.acquire() as conn:
+                total_users = await conn.fetchval('SELECT COUNT(*) FROM users')
+                total_refs = await conn.fetchval('SELECT COUNT(*) FROM referrals')
+                return total_users or 0, total_refs or 0
+        except Exception as e:
+            print(f"❌ Error in get_stats: {e}")
+            return 0, 0
 
 # ==================== ربات ====================
 logging.basicConfig(level=logging.INFO)
@@ -202,7 +264,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     except Exception as e:
         logging.error(f"Error checking membership: {e}")
-        await update.message.reply_text("⚠️ خطا در بررسی عضویت. لطفاً دوباره تلاش کنید.")
+        await update.message.reply_text(
+            f"⚠️ **خطا در بررسی عضویت!**\n\n"
+            f"لطفاً ابتدا در کانال ما عضو شوید:\n"
+            f"[{CHANNEL_ID}]({CHANNEL_LINK})\n\n"
+            f"سپس روی دکمه **'عضو شدم'** کلیک کنید.",
+            parse_mode=ParseMode.MARKDOWN,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📢 عضویت در کانال", url=CHANNEL_LINK)],
+                [InlineKeyboardButton("✅ عضو شدم", callback_data="check_membership")]
+            ])
+        )
 
 async def notify_referrer(context, referrer_id, new_user_name):
     try:
@@ -811,7 +883,13 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ عملیات لغو شد.")
 
 # ==================== تابع اصلی ====================
-def main():
+async def main():
+    # راه‌اندازی دیتابیس
+    db_init_success = await db.init()
+    
+    if not db_init_success:
+        print("⚠️ Database initialization failed, but bot will continue with limited functionality...")
+    
     # اجرای وب‌سرور در یک ترد جداگانه
     threading.Thread(target=run_flask, daemon=True).start()
     
@@ -840,8 +918,8 @@ def main():
     
     print("🤖 ربات روشن شد!")
     
-    # اجرا با run_polling بدون asyncio.run
+    # اجرا با run_polling
     application.run_polling()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
