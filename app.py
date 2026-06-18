@@ -798,7 +798,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== تابع اصلی ====================
 def main():
-    # راه‌اندازی دیتابیس به صورت همزمان
+    # راه‌اندازی دیتابیس
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
