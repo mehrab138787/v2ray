@@ -811,10 +811,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ عملیات لغو شد.")
 
 # ==================== تابع اصلی ====================
-async def main():
-    # راه‌اندازی دیتابیس
-    await db.init()
-    
+def main():
     # اجرای وب‌سرور در یک ترد جداگانه
     threading.Thread(target=run_flask, daemon=True).start()
     
@@ -843,8 +840,8 @@ async def main():
     
     print("🤖 ربات روشن شد!")
     
-    # اجرا با run_polling
-    await application.run_polling()
+    # اجرا با run_polling بدون asyncio.run
+    application.run_polling()
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
