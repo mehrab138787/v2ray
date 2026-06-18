@@ -873,16 +873,11 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== تابع اصلی ====================
 async def main():
-    # راه‌اندازی دیتابیس
     await db.init()
-    
-    # اجرای وب‌سرور در یک ترد جداگانه
     threading.Thread(target=run_flask, daemon=True).start()
     
-    # ساخت اپلیکیشن
     application = Application.builder().token(TOKEN).build()
     
-    # اضافه کردن هندلرها
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stats", stats))
     application.add_handler(CommandHandler("users", list_users))
@@ -903,8 +898,6 @@ async def main():
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_broadcast))
     
     print("🤖 ربات روشن شد!")
-    
-    # اجرا با run_polling
     application.run_polling()
 
 if __name__ == "__main__":
