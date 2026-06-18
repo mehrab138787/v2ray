@@ -6,7 +6,6 @@ import hashlib
 import os
 import threading
 import asyncpg
-import sqlite3
 
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
@@ -20,25 +19,16 @@ CHANNEL_LINK = "https://t.me/v2ray_free_irann"
 ADMIN_IDS = [6691915596]  # آی‌دی عددی ادمین - این رو تغییر بدید
 
 # ==================== دیتابیس PostgreSQL ====================
-# آدرس مستقیم دیتابیس (بدون متغیر محیطی)
 DATABASE_URL = "postgresql://v1ray_user:r8O5adc6NykDOFSDhysX12DlRHfwCTXP@dpg-d8peu9gg4nts73fu8sq0-a.oregon-postgres.render.com/v1ray"
 
 # ==================== کانفیگ‌ها ====================
 CONFIGS = [
-    # کانفیگ شماره 1 - VLESS
     "vless://5d05a69c-8a7a-40af-863e-2b01f53e8cb5@ezaccess-project-2c2ae8.ez-a26533.workers.dev:443?path=%2FeyJqdW5rIjoiQU1IYUkxU2EwVG1zbUUiLCJwcm90b2NvbCI6InZsIiwibW9kZSI6InByb3h5aXAiLCJwYW5lbElQcyI6W119%3Fed%3D2560&security=tls&encryption=none&host=ezaccess-project-2c2ae8.ez-a26533.workers.dev&fp=chrome&type=ws#@v2ray_free_irann1",
-    
-    # کانفیگ شماره 14 - VLESS
     "vless://5d05a69c-8a7a-40af-863e-2b01f53e8cb5@www.speedtest.net:443?path=%2FeyJqdW5rIjoiZHJFbTN1RkZxaG0iLCJwcm90b2NvbCI6InZsIiwibW9kZSI6InByb3h5aXAiLCJwYW5lbElQcyI6W119%3Fed%3D2560&security=tls&encryption=none&host=ezaccess-project-2c2ae8.ez-1e71ff.workers.dev&fp=chrome&type=ws#@v2ray_free_irann14",
-    
-    # کانفیگ شماره 3 - VLESS (قبلی)
     "vless://6ac23508-e357-4ab2-a411-075b2e476007@172.67.159.84:443?security=tls&encryption=none&fp=chrome&type=ws&host=ezaccess-project-d309e2.ez-8bb74b.workers.dev&path=%2FeyJqdW5rIjoiUnB1ZzNLSGNqeXJUcSIsInByb3RvY29sIjoidmwiLCJtb2RlIjoicHJveHlpcCIsInBhbmVsSVBzIjpbXX0%3D%3Fed%3D2560#@v2ray_free_irann3",
-    
-    # کانفیگ شماره 9 - Trojan (قبلی)
     "trojan://8205bee049104962@172.67.159.84:443?security=tls&fp=chrome&type=ws&host=ezaccess-project-d309e2.ez-8bb74b.workers.dev&path=%2FeyJqdW5rIjoiUXgxR3NUMjdqRSIsInByb3RvY29sIjoidHIiLCJtb2RlIjoicHJveHlpcCIsInBhbmVsSVBzIjpbXX0%3D%3Fed%3D2560#@v2ray_free_irann9"
 ]
 
-# ذخیره کانفیگ‌ها با کلید کوتاه برای دکمه‌ها
 config_store = {}
 for i, config in enumerate(CONFIGS):
     key = f"cfg_{i}"
@@ -50,7 +40,6 @@ class Database:
         self.pool = None
 
     async def init(self):
-        """اتصال به دیتابیس PostgreSQL"""
         try:
             self.pool = await asyncpg.create_pool(DATABASE_URL)
             await self._create_tables()
@@ -60,7 +49,6 @@ class Database:
             raise e
 
     async def _create_tables(self):
-        """ایجاد جدول‌ها در PostgreSQL"""
         async with self.pool.acquire() as conn:
             await conn.execute('''
                 CREATE TABLE IF NOT EXISTS users (
@@ -85,12 +73,10 @@ class Database:
             print("✅ Tables created successfully!")
 
     async def add_user(self, user_id, username, first_name, referrer_id=None):
-        """ثبت کاربر جدید"""
         now = datetime.now()
         expire = now + timedelta(hours=6)
         
         async with self.pool.acquire() as conn:
-            # بررسی وجود کاربر
             existing = await conn.fetchrow('SELECT user_id FROM users WHERE user_id = $1', user_id)
             if existing:
                 return False
@@ -108,13 +94,11 @@ class Database:
             return True
 
     async def get_referral_count(self, user_id):
-        """تعداد دعوت‌های موفق کاربر"""
         async with self.pool.acquire() as conn:
             result = await conn.fetchval('SELECT COUNT(*) FROM referrals WHERE referrer_id = $1', user_id)
             return result or 0
 
     async def get_referral_users(self, user_id):
-        """لیست کاربران دعوت شده"""
         async with self.pool.acquire() as conn:
             return await conn.fetch('''
                 SELECT u.user_id, u.username, u.first_name, r.created_at 
@@ -125,7 +109,6 @@ class Database:
             ''', user_id)
 
     async def add_config(self, user_id):
-        """افزایش تعداد کانفیگ‌های دریافتی کاربر"""
         expire = datetime.now() + timedelta(hours=6)
         async with self.pool.acquire() as conn:
             await conn.execute('''
@@ -134,17 +117,14 @@ class Database:
             ''', expire, user_id)
 
     async def get_user(self, user_id):
-        """دریافت اطلاعات کاربر"""
         async with self.pool.acquire() as conn:
             return await conn.fetchrow('SELECT * FROM users WHERE user_id = $1', user_id)
 
     async def update_notified(self, user_id):
-        """به‌روزرسانی وضعیت اطلاع‌رسانی"""
         async with self.pool.acquire() as conn:
             await conn.execute('UPDATE users SET notified_referral = 1 WHERE user_id = $1', user_id)
 
     async def get_all_users(self):
-        """دریافت لیست همه کاربران"""
         async with self.pool.acquire() as conn:
             return await conn.fetch('''
                 SELECT user_id, username, first_name, created_at, total_configs 
@@ -153,7 +133,6 @@ class Database:
             ''')
 
     async def get_stats(self):
-        """آمار ربات"""
         async with self.pool.acquire() as conn:
             total_users = await conn.fetchval('SELECT COUNT(*) FROM users')
             total_refs = await conn.fetchval('SELECT COUNT(*) FROM referrals')
@@ -286,7 +265,6 @@ async def check_membership_callback(update: Update, context: ContextTypes.DEFAUL
         )
 
 async def send_config_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int):
-    # بررسی انقضای کانفیگ قبلی
     user_data = await db.get_user(user_id)
     if user_data:
         expire_time = user_data[5]
@@ -315,7 +293,6 @@ async def send_config_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE
             )
             return
     
-    # انتخاب تصادفی از بین همه کانفیگ‌ها (شانس برابر)
     config = random.choice(CONFIGS)
     await db.add_config(user_id)
     
@@ -465,10 +442,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             
-            # چک کردن تعداد دعوت‌ها برای پاداش
             count = await db.get_referral_count(user_id)
             if count >= 5 and count % 5 == 0:
-                config = CONFIGS[3]  # کانفیگ شماره 9 (Trojan) برای پاداش
+                config = CONFIGS[3]
                 await db.add_config(user_id)
                 
                 config_key = None
@@ -501,7 +477,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             
-            # انتخاب تصادفی از بین همه کانفیگ‌ها (شانس برابر)
             normal_configs = [CONFIGS[0], CONFIGS[1], CONFIGS[2]]
             config = random.choice(normal_configs)
             await db.add_config(user_id)
@@ -570,7 +545,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش لیست کامل کاربران (فقط ادمین)"""
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔️ دسترسی محدود!")
         return
@@ -580,10 +554,6 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not users:
         await update.message.reply_text("📭 **هنوز هیچ کاربری ثبت نام نکرده!**")
         return
-    
-    page = 0
-    per_page = 10
-    total_pages = (len(users) + per_page - 1) // per_page
     
     keyboard = [
         [InlineKeyboardButton("📨 ارسال پیام به کاربر", callback_data="send_to_user")],
@@ -616,7 +586,6 @@ async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def all_users_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """نمایش همه کاربران (با صفحه‌بندی)"""
     query = update.callback_query
     await query.answer()
     
@@ -673,7 +642,6 @@ async def all_users_callback(update: Update, context: ContextTypes.DEFAULT_TYPE)
     )
 
 async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """منوی ادمین"""
     query = update.callback_query
     await query.answer()
     
@@ -697,7 +665,6 @@ async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def broadcast_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """منوی ارسال همگانی"""
     query = update.callback_query
     await query.answer()
     
@@ -720,7 +687,6 @@ async def broadcast_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def broadcast_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """شروع ارسال همگانی"""
     query = update.callback_query
     await query.answer()
     
@@ -745,7 +711,6 @@ async def broadcast_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['broadcast'] = True
 
 async def send_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ارسال پیام به کاربر خاص"""
     query = update.callback_query
     await query.answer()
     
@@ -765,7 +730,6 @@ async def send_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['send_to_user'] = True
 
 async def send_to_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """پردازش ارسال پیام به کاربر خاص"""
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔️ دسترسی محدود!")
         return
@@ -801,7 +765,6 @@ async def send_to_user_command(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.message.reply_text(f"❌ خطا در ارسال پیام: {e}")
 
 async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """پردازش پیام همگانی"""
     if not context.user_data.get('broadcast'):
         return
     
@@ -858,7 +821,7 @@ async def main():
     # ساخت اپلیکیشن
     application = Application.builder().token(TOKEN).build()
     
-    # دستورات
+    # اضافه کردن هندلرها
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stats", stats))
     application.add_handler(CommandHandler("users", list_users))
@@ -866,7 +829,6 @@ async def main():
     application.add_handler(CommandHandler("broadcast", broadcast_all))
     application.add_handler(CommandHandler("cancel", cancel))
     
-    # کالبک‌ها
     application.add_handler(CallbackQueryHandler(check_membership_callback, pattern="check_membership"))
     application.add_handler(CallbackQueryHandler(callback_handler))
     application.add_handler(CallbackQueryHandler(all_users_callback, pattern="all_users_"))
@@ -877,13 +839,12 @@ async def main():
     application.add_handler(CallbackQueryHandler(list_users, pattern="list_users"))
     application.add_handler(CallbackQueryHandler(stats, pattern="stats_menu"))
     
-    # پیام‌ها
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_broadcast))
     
     print("🤖 ربات روشن شد!")
     
-    # اجرا با run_polling به روش استاندارد
-    application.run_polling()
+    # اجرا با run_polling
+    await application.run_polling()
 
 if __name__ == "__main__":
     asyncio.run(main())
