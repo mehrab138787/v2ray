@@ -7,29 +7,6 @@ import os
 import threading
 import asyncpg
 
-# جایگزینی imghdr با Pillow
-try:
-    from PIL import Image
-    import imghdr
-    # اگر imghdr وجود نداشت، تابع جایگزین
-    if not hasattr(imghdr, 'what'):
-        def imghdr_what(file, h=None):
-            try:
-                if isinstance(file, str):
-                    img = Image.open(file)
-                else:
-                    img = Image.open(file)
-                return img.format.lower()
-            except:
-                return None
-        imghdr.what = imghdr_what
-except ImportError:
-    # اگر Pillow هم نبود، یک تابع ساده
-    def imghdr_what(file, h=None):
-        return None
-    import imghdr
-    imghdr.what = imghdr_what
-
 from flask import Flask
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
