@@ -114,6 +114,14 @@ class Database:
         self.cursor.execute('UPDATE users SET notified_referral = 1 WHERE user_id = ?', (user_id,))
         self.conn.commit()
 
+    def get_all_users(self):
+        self.cursor.execute('''
+            SELECT user_id, username, first_name, created_at, total_configs 
+            FROM users 
+            ORDER BY created_at DESC
+        ''')
+        return self.cursor.fetchall()
+
     def get_stats(self):
         self.cursor.execute('SELECT COUNT(*) FROM users')
         total_users = self.cursor.fetchone()[0]
@@ -522,6 +530,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
 
+# ==================== دستورات ادمین ====================
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔️ دسترسی محدود!")
@@ -533,34 +542,282 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🔗 دعوت‌های موفق: {total_refs}"
     )
 
-async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def list_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش لیست کامل کاربران (فقط ادمین)"""
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔️ دسترسی محدود!")
         return
+    
+    users = db.get_all_users()
+    
+    if not users:
+        await update.message.reply_text("📭 **هنوز هیچ کاربری ثبت نام نکرده!**")
+        return
+    
+    # ساخت لیست کاربران با شماره صفحه
+    page = 0
+    per_page = 10
+    total_pages = (len(users) + per_page - 1) // per_page
+    
+    keyboard = [
+        [InlineKeyboardButton("📨 ارسال پیام به کاربر", callback_data="send_to_user")],
+        [InlineKeyboardButton("📢 ارسال همگانی", callback_data="broadcast_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    # نمایش ۱۰ کاربر اول
+    message = f"👥 **لیست کاربران ({len(users)} نفر):**\n\n"
+    for i, (user_id, username, first_name, created_at, total_configs) in enumerate(users[:10], 1):
+        name = first_name or username or f"کاربر {user_id}"
+        message += f"{i}. {name}\n"
+        message += f"   🆔: `{user_id}`\n"
+        message += f"   📅: {created_at[:10]}\n"
+        message += f"   📊: {total_configs} کانفیگ\n\n"
+    
+    if len(users) > 10:
+        message += f"\n... و {len(users) - 10} نفر دیگر"
+        keyboard.insert(0, [InlineKeyboardButton("📄 مشاهده همه", callback_data="all_users")])
+    
+    await update.message.reply_text(
+        message,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def all_users_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """نمایش همه کاربران (با صفحه‌بندی)"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.from_user.id not in ADMIN_IDS:
+        await query.edit_message_text("⛔️ دسترسی محدود!")
+        return
+    
+    users = db.get_all_users()
+    
+    if not users:
+        await query.edit_message_text("📭 **هنوز هیچ کاربری ثبت نام نکرده!**")
+        return
+    
+    # دریافت شماره صفحه از داده‌ها
+    data = query.data.split("_")
+    page = int(data[2]) if len(data) > 2 else 0
+    per_page = 10
+    total_pages = (len(users) + per_page - 1) // per_page
+    
+    start = page * per_page
+    end = min(start + per_page, len(users))
+    current_users = users[start:end]
+    
+    message = f"👥 **لیست کاربران (صفحه {page + 1} از {total_pages}):**\n\n"
+    for i, (user_id, username, first_name, created_at, total_configs) in enumerate(current_users, start + 1):
+        name = first_name or username or f"کاربر {user_id}"
+        message += f"{i}. {name}\n"
+        message += f"   🆔: `{user_id}`\n"
+        message += f"   📅: {created_at[:10]}\n"
+        message += f"   📊: {total_configs} کانفیگ\n\n"
+    
+    keyboard = []
+    
+    # دکمه‌های صفحه‌بندی
+    nav_buttons = []
+    if page > 0:
+        nav_buttons.append(InlineKeyboardButton("⬅️ قبلی", callback_data=f"all_users_{page - 1}"))
+    if page < total_pages - 1:
+        nav_buttons.append(InlineKeyboardButton("➡️ بعدی", callback_data=f"all_users_{page + 1}"))
+    if nav_buttons:
+        keyboard.append(nav_buttons)
+    
+    keyboard.append([InlineKeyboardButton("🔙 بازگشت", callback_data="admin_menu")])
+    
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await query.edit_message_text(
+        message,
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def admin_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """منوی ادمین"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.from_user.id not in ADMIN_IDS:
+        await query.edit_message_text("⛔️ دسترسی محدود!")
+        return
+    
+    keyboard = [
+        [InlineKeyboardButton("👥 لیست کاربران", callback_data="list_users")],
+        [InlineKeyboardButton("📢 ارسال همگانی", callback_data="broadcast_menu")],
+        [InlineKeyboardButton("📊 آمار ربات", callback_data="stats_menu")],
+        [InlineKeyboardButton("🔙 بازگشت", callback_data="main_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "🛠️ **پنل مدیریت ربات**\n\n"
+        "از دکمه‌های زیر برای مدیریت استفاده کنید:",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def broadcast_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """منوی ارسال همگانی"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.from_user.id not in ADMIN_IDS:
+        await query.edit_message_text("⛔️ دسترسی محدود!")
+        return
+    
+    keyboard = [
+        [InlineKeyboardButton("📨 ارسال به همه کاربران", callback_data="broadcast_all")],
+        [InlineKeyboardButton("📨 ارسال به کاربر خاص", callback_data="send_to_user")],
+        [InlineKeyboardButton("🔙 بازگشت به پنل", callback_data="admin_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.edit_message_text(
+        "📢 **ارسال پیام**\n\n"
+        "لطفاً روش ارسال را انتخاب کنید:",
+        parse_mode=ParseMode.MARKDOWN,
+        reply_markup=reply_markup
+    )
+
+async def broadcast_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """شروع ارسال همگانی"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.from_user.id not in ADMIN_IDS:
+        await query.edit_message_text("⛔️ دسترسی محدود!")
+        return
+    
+    # محاسبه تعداد کاربران
+    users = db.get_all_users()
+    total = len(users)
+    
+    if total == 0:
+        await query.edit_message_text("📭 **هنوز هیچ کاربری ثبت نام نکرده!**")
+        return
+    
+    await query.edit_message_text(
+        f"📢 **ارسال همگانی به {total} کاربر**\n\n"
+        f"لطفاً پیام خود را ارسال کنید.\n"
+        f"برای لغو، دستور /cancel را بفرستید.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
     context.user_data['broadcast'] = True
-    await update.message.reply_text("📝 پیام خود را ارسال کنید:")
+
+async def send_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ارسال پیام به کاربر خاص"""
+    query = update.callback_query
+    await query.answer()
+    
+    if query.from_user.id not in ADMIN_IDS:
+        await query.edit_message_text("⛔️ دسترسی محدود!")
+        return
+    
+    await query.edit_message_text(
+        "📨 **ارسال پیام به کاربر خاص**\n\n"
+        "لطفاً ابتدا `user_id` کاربر را وارد کنید.\n"
+        "سپس پیام خود را ارسال کنید.\n\n"
+        "مثال: `/send 123456789 پیام شما`\n"
+        "برای لغو، دستور /cancel را بفرستید.",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    context.user_data['send_to_user'] = True
+
+async def send_to_user_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش ارسال پیام به کاربر خاص"""
+    if update.effective_user.id not in ADMIN_IDS:
+        await update.message.reply_text("⛔️ دسترسی محدود!")
+        return
+    
+    try:
+        # استخراج user_id و پیام
+        args = context.args
+        if len(args) < 2:
+            await update.message.reply_text(
+                "❌ **استفاده صحیح:**\n"
+                "`/send <user_id> <پیام>`\n\n"
+                "مثال: `/send 123456789 سلام`",
+                parse_mode=ParseMode.MARKDOWN
+            )
+            return
+        
+        target_user_id = int(args[0])
+        message_text = " ".join(args[1:])
+        
+        # ارسال پیام به کاربر
+        await context.bot.send_message(
+            chat_id=target_user_id,
+            text=f"📨 **پیام از ادمین:**\n\n{message_text}",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+        await update.message.reply_text(
+            f"✅ **پیام با موفقیت به کاربر `{target_user_id}` ارسال شد!**",
+            parse_mode=ParseMode.MARKDOWN
+        )
+        
+    except ValueError:
+        await update.message.reply_text("❌ `user_id` باید عددی باشد!", parse_mode=ParseMode.MARKDOWN)
+    except Exception as e:
+        await update.message.reply_text(f"❌ خطا در ارسال پیام: {e}")
 
 async def handle_broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """پردازش پیام همگانی"""
     if not context.user_data.get('broadcast'):
         return
+    
+    user_id = update.effective_user.id
+    if user_id not in ADMIN_IDS:
+        return
+    
     msg = update.message.text
-    db.cursor.execute('SELECT user_id FROM users')
-    users = db.cursor.fetchall()
+    users = db.get_all_users()
     success = 0
+    fail = 0
+    
+    # پیام اولیه
+    await update.message.reply_text(
+        f"📤 **در حال ارسال پیام به {len(users)} کاربر...**",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
+    # ارسال به همه کاربران
     for user in users:
         try:
-            await context.bot.send_message(user[0], f"📢 {msg}")
+            await context.bot.send_message(
+                chat_id=user[0],
+                text=f"📢 **پیام از ادمین:**\n\n{msg}",
+                parse_mode=ParseMode.MARKDOWN
+            )
             success += 1
-            await asyncio.sleep(0.05)
-        except:
-            pass
-    await update.message.reply_text(f"✅ پیام به {success} کاربر ارسال شد.")
+            await asyncio.sleep(0.05)  # جلوگیری از محدودیت
+        except Exception as e:
+            fail += 1
+            logging.error(f"Error sending to {user[0]}: {e}")
+    
+    # گزارش نهایی
+    await update.message.reply_text(
+        f"✅ **پیام با موفقیت ارسال شد!**\n\n"
+        f"📨 ارسال به: {success} کاربر\n"
+        f"❌ ناموفق: {fail} کاربر",
+        parse_mode=ParseMode.MARKDOWN
+    )
+    
     context.user_data['broadcast'] = False
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['broadcast'] = False
+    context.user_data['send_to_user'] = False
     await update.message.reply_text("✅ عملیات لغو شد.")
 
+# ==================== تابع اصلی ====================
 def main():
     # اجرای وب‌سرور در یک ترد جداگانه
     threading.Thread(target=run_flask, daemon=True).start()
@@ -568,13 +825,26 @@ def main():
     # ساخت اپلیکیشن
     application = Application.builder().token(TOKEN).build()
     
-    # اضافه کردن هندلرها
+    # دستورات
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("stats", stats))
-    application.add_handler(CommandHandler("broadcast", broadcast))
+    application.add_handler(CommandHandler("users", list_users))
+    application.add_handler(CommandHandler("send", send_to_user_command))
+    application.add_handler(CommandHandler("broadcast", broadcast_all))
     application.add_handler(CommandHandler("cancel", cancel))
+    
+    # کالبک‌ها
     application.add_handler(CallbackQueryHandler(check_membership_callback, pattern="check_membership"))
     application.add_handler(CallbackQueryHandler(callback_handler))
+    application.add_handler(CallbackQueryHandler(all_users_callback, pattern="all_users_"))
+    application.add_handler(CallbackQueryHandler(admin_menu, pattern="admin_menu"))
+    application.add_handler(CallbackQueryHandler(broadcast_menu, pattern="broadcast_menu"))
+    application.add_handler(CallbackQueryHandler(broadcast_all, pattern="broadcast_all"))
+    application.add_handler(CallbackQueryHandler(send_to_user, pattern="send_to_user"))
+    application.add_handler(CallbackQueryHandler(list_users, pattern="list_users"))
+    application.add_handler(CallbackQueryHandler(stats, pattern="stats_menu"))
+    
+    # پیام‌ها
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_broadcast))
     
     print("🤖 ربات روشن شد!")
