@@ -16,7 +16,7 @@ from telegram.constants import ParseMode
 TOKEN = os.environ.get("TOKEN", "8941466935:AAGBZs9eZFZDTzmcM_Y3PYojtu497XaUEgA")
 CHANNEL_ID = "@v2ray_free_irann"
 CHANNEL_LINK = "https://t.me/v2ray_free_irann"
-ADMIN_IDS = [6691915596]
+ADMIN_IDS = [6691915596]  # آی‌دی عددی ادمین - این رو تغییر بدید
 
 # ==================== دیتابیس PostgreSQL ====================
 DATABASE_URL = "postgresql://v1ray_user:r8O5adc6NykDOFSDhysX12DlRHfwCTXP@dpg-d8peu9gg4nts73fu8sq0-a.oregon-postgres.render.com/v1ray"
@@ -199,7 +199,7 @@ def health_check():
 
 def run_flask():
     port = int(os.environ.get("PORT", 5000))
-    flask_app.run(host="0.0.0.0", port=port)
+    flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 # ==================== توابع ربات ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -562,7 +562,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=reply_markup
         )
 
-# ==================== دستورات ادمین ====================
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("⛔️ دسترسی محدود!")
@@ -799,11 +798,14 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ==================== تابع اصلی ====================
 def main():
-    # راه‌اندازی دیتابیس (همزمان)
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(db.init())
-    loop.close()
+    # راه‌اندازی دیتابیس به صورت همزمان
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(db.init())
+        loop.close()
+    except Exception as e:
+        print(f"⚠️ Database error: {e}")
     
     # اجرای وب‌سرور در یک ترد جداگانه
     threading.Thread(target=run_flask, daemon=True).start()
@@ -834,7 +836,12 @@ def main():
     print("🤖 ربات روشن شد!")
     
     # اجرا با run_polling
-    application.run_polling()
+    try:
+        application.run_polling()
+    except KeyboardInterrupt:
+        print("🛑 ربات متوقف شد.")
+    except Exception as e:
+        print(f"❌ خطا: {e}")
 
 if __name__ == "__main__":
     main()
