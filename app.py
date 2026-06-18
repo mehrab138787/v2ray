@@ -883,18 +883,12 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ عملیات لغو شد.")
 
 # ==================== تابع اصلی ====================
-def main():
+async def main():
+    # راه‌اندازی دیتابیس
+    await db.init()
+    
     # اجرای وب‌سرور در یک ترد جداگانه
     threading.Thread(target=run_flask, daemon=True).start()
-    
-    # ایجاد دیتابیس (به صورت غیرهمزمان در ترد جداگانه)
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    db_init_success = loop.run_until_complete(db.init())
-    loop.close()
-    
-    if not db_init_success:
-        print("⚠️ Database initialization failed, but bot will continue with limited functionality...")
     
     # ساخت اپلیکیشن
     application = Application.builder().token(TOKEN).build()
@@ -921,8 +915,8 @@ def main():
     
     print("🤖 ربات روشن شد!")
     
-    # اجرا با run_polling به روش استاندارد (بدون asyncio)
+    # اجرا با run_polling به روش استاندارد
     application.run_polling()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
