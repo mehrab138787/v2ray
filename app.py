@@ -16,11 +16,20 @@ from telegram.constants import ParseMode
 TOKEN = os.environ.get("TOKEN", "8941466935:AAGBZs9eZFZDTzmcM_Y3PYojtu497XaUEgA")
 CHANNEL_ID = "@v2ray_free_irann"
 CHANNEL_LINK = "https://t.me/v2ray_free_irann"
-ADMIN_IDS = [123456789]  # آی‌دی عددی ادمین - این رو تغییر بدید
+ADMIN_IDS = [6691915596]  # آی‌دی عددی ادمین - این رو تغییر بدید
 
 # ==================== کانفیگ‌ها ====================
 CONFIGS = [
+    # کانفیگ شماره 1 - VLESS
+    "vless://5d05a69c-8a7a-40af-863e-2b01f53e8cb5@ezaccess-project-2c2ae8.ez-a26533.workers.dev:443?path=%2FeyJqdW5rIjoiQU1IYUkxU2EwVG1zbUUiLCJwcm90b2NvbCI6InZsIiwibW9kZSI6InByb3h5aXAiLCJwYW5lbElQcyI6W119%3Fed%3D2560&security=tls&encryption=none&host=ezaccess-project-2c2ae8.ez-a26533.workers.dev&fp=chrome&type=ws#@v2ray_free_irann1",
+    
+    # کانفیگ شماره 14 - VLESS
+    "vless://5d05a69c-8a7a-40af-863e-2b01f53e8cb5@www.speedtest.net:443?path=%2FeyJqdW5rIjoiZHJFbTN1RkZxaG0iLCJwcm90b2NvbCI6InZsIiwibW9kZSI6InByb3h5aXAiLCJwYW5lbElQcyI6W119%3Fed%3D2560&security=tls&encryption=none&host=ezaccess-project-2c2ae8.ez-1e71ff.workers.dev&fp=chrome&type=ws#@v2ray_free_irann14",
+    
+    # کانفیگ شماره 3 - VLESS (قبلی)
     "vless://6ac23508-e357-4ab2-a411-075b2e476007@172.67.159.84:443?security=tls&encryption=none&fp=chrome&type=ws&host=ezaccess-project-d309e2.ez-8bb74b.workers.dev&path=%2FeyJqdW5rIjoiUnB1ZzNLSGNqeXJUcSIsInByb3RvY29sIjoidmwiLCJtb2RlIjoicHJveHlpcCIsInBhbmVsSVBzIjpbXX0%3D%3Fed%3D2560#@v2ray_free_irann3",
+    
+    # کانفیگ شماره 9 - Trojan (قبلی)
     "trojan://8205bee049104962@172.67.159.84:443?security=tls&fp=chrome&type=ws&host=ezaccess-project-d309e2.ez-8bb74b.workers.dev&path=%2FeyJqdW5rIjoiUXgxR3NUMjdqRSIsInByb3RvY29sIjoidHIiLCJtb2RlIjoicHJveHlpcCIsInBhbmVsSVBzIjpbXX0%3D%3Fed%3D2560#@v2ray_free_irann9"
 ]
 
@@ -271,8 +280,8 @@ async def send_config_to_user(update: Update, context: ContextTypes.DEFAULT_TYPE
                 )
                 return
     
-    # انتخاب کانفیگ شماره 3 (VLESS) برای کاربران عادی
-    config = CONFIGS[0]
+    # انتخاب تصادفی از بین همه کانفیگ‌ها
+    config = random.choice(CONFIGS)
     db.add_config(user_id)
     
     config_key = None
@@ -424,7 +433,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # چک کردن تعداد دعوت‌ها برای پاداش
             count = db.get_referral_count(user_id)
             if count >= 5 and count % 5 == 0:
-                config = CONFIGS[1]  # کانفیگ شماره 9 (Trojan)
+                config = CONFIGS[3]  # کانفیگ شماره 9 (Trojan) برای پاداش
                 db.add_config(user_id)
                 
                 config_key = None
@@ -457,8 +466,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 )
                 return
             
-            # کانفیگ شماره 3 (VLESS) برای کاربران عادی
-            config = CONFIGS[0]
+            # انتخاب تصادفی از بین کانفیگ‌های VLESS
+            vless_configs = [CONFIGS[0], CONFIGS[1], CONFIGS[2]]
+            config = random.choice(vless_configs)
             db.add_config(user_id)
             
             config_key = None
