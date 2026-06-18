@@ -4,7 +4,6 @@ from datetime import datetime, timedelta
 import random
 import hashlib
 import os
-import threading
 import asyncpg
 
 from flask import Flask
@@ -196,10 +195,6 @@ flask_app = Flask(__name__)
 @flask_app.route('/health')
 def health_check():
     return "ربات روشن است!", 200
-
-def run_flask():
-    port = int(os.environ.get("PORT", 5000))
-    flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
 
 # ==================== توابع ربات ====================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -797,18 +792,9 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("✅ عملیات لغو شد.")
 
 # ==================== تابع اصلی ====================
-def main():
+async def main():
     # راه‌اندازی دیتابیس
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(db.init())
-        loop.close()
-    except Exception as e:
-        print(f"⚠️ Database error: {e}")
-    
-    # اجرای وب‌سرور در یک ترد جداگانه
-    threading.Thread(target=run_flask, daemon=True).start()
+    await db.init()
     
     # ساخت اپلیکیشن
     application = Application.builder().token(TOKEN).build()
@@ -835,13 +821,8 @@ def main():
     
     print("🤖 ربات روشن شد!")
     
-    # اجرا با run_polling
-    try:
-        application.run_polling()
-    except KeyboardInterrupt:
-        print("🛑 ربات متوقف شد.")
-    except Exception as e:
-        print(f"❌ خطا: {e}")
+    # اجرا با run_polling به روش استاندارد
+    await application.run_polling()
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
