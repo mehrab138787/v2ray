@@ -915,7 +915,7 @@ async def main():
     
     print("🤖 ربات روشن شد!")
     
-    # اجرا با run_polling به روش استاندارد
+    # اجرا با run_polling
     application.run_polling()
 
 if __name__ == "__main__":
